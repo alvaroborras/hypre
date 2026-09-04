@@ -19,6 +19,7 @@ set(TEST_SRCS
   ij.c
   sstruct.c
   struct.c
+  pfmg_singular.c
   structmat.c
   ams_driver.c
   struct_migrate.c
@@ -140,6 +141,13 @@ add_custom_target(checkpar
 # Add CTest support
 if(BUILD_TESTING)
   message(STATUS "Building tests with CTest support")
+
+  # PFMG regression tests
+  add_test(NAME test_pfmg_singular COMMAND $<TARGET_FILE:pfmg_singular>)
+  if(HYPRE_ENABLE_MPI)
+    add_test(NAME test_pfmg_singular_mpi
+      COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 $<TARGET_FILE:pfmg_singular>)
+  endif()
 
   # IJ tests
   add_test(NAME test_ij_solvers

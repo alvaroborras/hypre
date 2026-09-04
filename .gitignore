@@ -61,6 +61,8 @@ src/test/ij_mv.exe
 src/test/ij_mm
 src/test/ij_mm.exe
 src/test/ij_mp
+src/test/pfmg_singular
+src/test/pfmg_singular.exe
 src/test/sstruct
 src/test/sstruct.exe
 src/test/sstructmat

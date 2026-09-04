@@ -10,8 +10,78 @@
 #include "pfmg.h"
 
 /*--------------------------------------------------------------------------
+ * hypre_PFMGZeroCoarseDiagonal
  *--------------------------------------------------------------------------*/
 
+static HYPRE_Int
+hypre_PFMGZeroCoarseDiagonal( hypre_StructMatrix *A,
+                              hypre_StructMatrix *A_parent,
+                              HYPRE_Int           num_levels )
+{
+   hypre_StructGrid    *grid = hypre_StructMatrixGrid(A);
+   hypre_BoxArray      *boxes = hypre_StructGridBoxes(grid);
+   hypre_StructStencil *stencil = hypre_StructMatrixStencil(A);
+   HYPRE_MemoryLocation memory_location = hypre_StructMatrixMemoryLocation(A);
+   HYPRE_Complex        diagonal = 0.0;
+   HYPRE_Real           parent_scale;
+   HYPRE_Int            diag_entry = hypre_StructStencilDiagEntry(stencil);
+   HYPRE_Int            has_point = 0;
+   HYPRE_Int            zero_diag = hypre_StructMatrixZeroDiagonal(A);
+   HYPRE_Int            i;
+
+   if (num_levels < 2 || hypre_BoxVolume(hypre_StructGridBoundingBox(grid)) != 1)
+   {
+      return zero_diag;
+   }
+
+   hypre_ForBoxI(i, boxes)
+   {
+      hypre_Box     *box = hypre_BoxArrayBox(boxes, i);
+      HYPRE_Complex *Ap = hypre_StructMatrixBoxData(A, i, diag_entry);
+      HYPRE_Int      Ai = 0;
+
+      if (!hypre_StructMatrixConstEntry(A, diag_entry))
+      {
+         Ai = hypre_BoxIndexRank(hypre_StructMatrixBoxDataBox(A, i),
+                                 hypre_BoxIMin(box));
+      }
+      hypre_TMemcpy(&diagonal, Ap + Ai, HYPRE_Complex, 1,
+                    HYPRE_MEMORY_HOST, memory_location);
+      has_point = 1;
+   }
+
+   /* Use the parent operator scale before cancellation on the singleton grid. */
+   {
+      hypre_StructGrid   *parent_grid = hypre_StructMatrixGrid(A_parent);
+      hypre_StructVector *rowsums = hypre_StructVectorCreate(hypre_StructMatrixComm(A_parent),
+                                                             parent_grid);
+      hypre_StructVector *weights = hypre_StructVectorCreate(hypre_StructMatrixComm(A_parent),
+                                                             parent_grid);
+
+      hypre_StructVectorInitialize(rowsums, 1);
+      hypre_StructVectorAssemble(rowsums);
+      hypre_StructVectorInitialize(weights, 1);
+      hypre_StructVectorSetConstantValues(weights, 1.0);
+      hypre_StructVectorAssemble(weights);
+      hypre_StructMatrixComputeRowSum(A_parent, 1, rowsums);
+      parent_scale = hypre_StructInnerProd(rowsums, weights);
+      hypre_StructVectorDestroy(rowsums);
+      hypre_StructVectorDestroy(weights);
+   }
+
+   /* Account for roundoff accumulated across levels and stencil entries. */
+   if (has_point &&
+       hypre_cabs(diagonal) <= num_levels * hypre_StructStencilSize(stencil) *
+       HYPRE_REAL_EPSILON * parent_scale)
+   {
+      zero_diag = 1;
+   }
+
+   return zero_diag;
+}
+
+/*--------------------------------------------------------------------------
+ *--------------------------------------------------------------------------*/
 HYPRE_Int
 hypre_PFMGSetup( void               *pfmg_vdata,
                  hypre_StructMatrix *A,
@@ -344,12 +414,11 @@ hypre_PFMGSetup( void               *pfmg_vdata,
       HYPRE_ANNOTATE_MGLEVEL_END(l);
    }
 
-   /* Check for zero diagonal on coarsest grid, occurs with singular problems
-    * like full Neumann or full periodic.  Note that a processor with zero
-    * diagonal will set active_l = 0, other processors will not. This is OK as
-    * we only want to avoid the division by zero on the one processor that owns
-    * the single coarse grid point. */
-   if (hypre_StructMatrixZeroDiagonal(A_l[l]))
+   /* Check for a zero or roundoff-sized diagonal on the coarsest grid, which
+    * occurs with singular problems like full Neumann or full periodic.  Only
+    * the processor that owns the single coarse grid point needs to deactivate
+    * the bottom solve. */
+   if (hypre_PFMGZeroCoarseDiagonal(A_l[l], A_l[hypre_max(l - 1, 0)], num_levels))
    {
       active_l[l] = 0;
    }

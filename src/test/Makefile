@@ -67,6 +67,7 @@ HYPRE_DRIVERS =\
  sstruct.c\
  sstructmat.c\
  struct.c\
+ pfmg_singular.c\
  structmat.c\
  ams_driver.c\
  struct_migrate.c\
@@ -171,6 +172,10 @@ sstructmat: sstruct_helpers.o sstructmat.o
 	${LINK_CC} -o $@ $^ ${LFLAGS}
 
 struct: struct.obj
+	@echo  "Building" $@ "... "
+	${LINK_CC} -o $@ $< ${LFLAGS}
+
+pfmg_singular: pfmg_singular.o
 	@echo  "Building" $@ "... "
 	${LINK_CC} -o $@ $< ${LFLAGS}
 
